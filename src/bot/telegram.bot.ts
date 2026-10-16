@@ -14,6 +14,19 @@ export function setupTelegramBotCommands(): void {
     return;
   }
 
+  // Đăng ký menu lệnh gợi ý khi người dùng gõ "/" trên Telegram (chuẩn xác 100% theo yêu cầu)
+  bot.setMyCommands([
+    { command: 'doi', description: 'Đổi Reader cho đơn' },
+    { command: 'them', description: 'Thêm Reader vào Page (Cú pháp: /them [Tên_Reader] [Tên_Page])' },
+    { command: 'thempage', description: 'Thêm Fanpage mới' },
+    { command: 'doikytu', description: 'Đổi ký tự nhận diện Reader' },
+    { command: 'listreaders', description: 'Xem danh sách Reader theo từng Page' },
+    { command: 'listpages', description: 'Xem danh sách các Fanpage' },
+    { command: 'baocao', description: 'Xem tổng kết doanh thu hôm nay' }
+  ]).catch((err) => {
+    logger.warn(`[TelegramBot] Không thể đăng ký setMyCommands: ${err.message}`);
+  });
+
   // 1. Lệnh /start và /help
   bot.onText(/\/(start|help)/, (msg) => {
     const chatId = msg.chat.id;
@@ -22,34 +35,37 @@ export function setupTelegramBotCommands(): void {
 ━━━━━━━━━━━━━━━━━━━━━
 <b>1. Đổi Reader cho đơn vừa nhận:</b>
 • <code>/doi [Số_Đơn] [Tên_Reader_Mới]</code>
-<i>Ví dụ: <code>/doi 1 My</code> ➔ Đổi đơn #1 sang reader My, tự tính lại hoa hồng và tự sửa Cột C trên Google Sheets.</i>
+<i>Ví dụ: <code>/doi 1 Chi</code> hoặc <code>/doi 1 NA</code></i>
 
-<b>2. Quản lý Reader:</b>
-• <code>/themreader [Tên] [Chữ_Ký] [%_Hoa_Hồng]</code>
-<i>Ví dụ: <code>/themreader My [My] 40</code></i>
-• <code>/xoareader [Tên]</code>
-<i>Ví dụ: <code>/xoareader My</code></i>
-• <code>/listreaders</code>: Xem danh sách tất cả Reader.
+<b>2. Thêm Reader cho Page:</b>
+• <code>/them [Tên_Reader] [Tên_Page]</code>
+<i>Ví dụ: <code>/them Chi tarotchips03</code> hoặc <code>/them My chips02</code></i>
 
-<b>3. Quản lý Page:</b>
-• <code>/thempage [Tên_Page] [Page_ID] [Page_Access_Token]</code>
-<i>Ví dụ: <code>/thempage tarotchips03 992148840643936 EAAB...</code></i>
-• <code>/xoapage [Tên_Page]</code>
-• <code>/listpages</code>: Xem danh sách Fanpage đang kết nối.
+<b>3. Quản lý Fanpage:</b>
+• <code>/thempage [Tên_Page] [Page_ID] [Access_Token]</code>
+• <code>/listpages</code>: Xem danh sách Fanpage đang chạy.
+• <code>/xoapage [Tên_Page]</code>: Xóa Fanpage.
 
-<b>4. Xem Báo Cáo Doanh Thu:</b>
-• <code>/baocao</code>: Xem tổng hợp doanh thu & hoa hồng trong ngày.`;
+<b>4. Đổi ký tự nhận diện Reader:</b>
+• <code>/doikytu [Tên_Reader] [Ký_Tự_Mới]</code>
+<i>Ví dụ: <code>/doikytu Chi .</code></i>
+
+<b>5. Xem danh sách Reader:</b>
+• <code>/listreaders</code>: Xem Reader của từng Page.
+• <code>/xoareader [Tên]</code>: Xóa Reader.
+
+<b>6. Báo Cáo Doanh Thu:</b>
+• <code>/baocao</code>: Xem tổng hợp doanh thu trong ngày.`;
     bot.sendMessage(chatId, helpText, { parse_mode: 'HTML' });
   });
 
-  // 2. Lệnh /doi [Số_Đơn] [Tên_Reader_Mới] (Hỗ trợ cả /doi 1 Chi, /doi Chi, /doi@bot 1 Chi)
+  // 2. Lệnh /doi [Số_Đơn] [Tên_Reader_Mới]
   bot.onText(/\/(?:doi)(?:@\w+)?(?:\s+(\d+))?(?:\s+([^\s]+))?/i, async (msg, match) => {
     const chatId = msg.chat.id;
 
     let orderNumber: number | null = match && match[1] ? parseInt(match[1], 10) : null;
     let newReaderName: string | null = match && match[2] ? match[2].trim() : null;
 
-    // Nếu người dùng chỉ gõ /doi Chi (không gõ số đơn), tự động lấy đơn mới nhất hôm nay
     if (!orderNumber && match && match[1] && isNaN(parseInt(match[1], 10))) {
       newReaderName = match[1].trim();
       const allTxToday = TransactionModel.getTodayTransactions();
@@ -63,40 +79,30 @@ export function setupTelegramBotCommands(): void {
       return;
     }
 
-    // Nếu vẫn chưa có số đơn, mặc định là đơn #1
     if (!orderNumber) {
       orderNumber = 1;
     }
 
     try {
-      // 1. Tìm đơn hàng hôm nay theo số thứ tự đơn
       const tx = TransactionModel.getByTodayOrderNumber(orderNumber);
       if (!tx) {
         bot.sendMessage(chatId, `❌ Không tìm thấy <b>ĐƠN #${orderNumber}</b> trong ngày hôm nay.`, { parse_mode: 'HTML' });
         return;
       }
 
-      // 2. Tìm thông tin Reader mới (hoặc tự tạo nếu chưa có)
       let newReader = ReaderModel.getByName(newReaderName);
       if (!newReader) {
-        // Tự tạo nhanh nếu là Chi hoặc NA
-        const defaultTag = newReaderName.toLowerCase() === 'chi' ? '.' : (newReaderName.toLowerCase() === 'na' ? ',' : `[${newReaderName}]`);
+        const defaultTag = newReaderName.toLowerCase() === 'chi' ? '.' : (newReaderName.toLowerCase() === 'na' ? '' : `[${newReaderName}]`);
         newReader = ReaderModel.create({
           page_id: tx.page_id,
           reader_name: newReaderName,
-          tag_prefix: defaultTag,
-          commission_rate: 40.0
+          tag_prefix: defaultTag
         });
       }
 
-      // 3. Tính lại hoa hồng theo % của Reader mới
-      const newRate = newReader.commission_rate || 40.0;
-      const newCommission = Math.round(tx.amount * (newRate / 100));
+      // Cập nhật Reader cho đơn (không tính hoa hồng)
+      TransactionModel.updateReaderForOrder(orderNumber, newReader.id, 0, 0);
 
-      // 4. Cập nhật vào Database
-      TransactionModel.updateReaderForOrder(orderNumber, newReader.id, newRate, newCommission);
-
-      // 5. Cập nhật lại Cột C trên Google Sheets
       let sheetStatusText = '';
       if (tx.sheet_row_number) {
         const sheetUpdated = await GoogleSheetsService.updateReaderColumn(tx.sheet_row_number, newReader.reader_name);
@@ -112,7 +118,7 @@ export function setupTelegramBotCommands(): void {
 ━━━━━━━━━━━━━━━━━━━━━
 • Khách hàng: <b>${tx.customer_name}</b>
 • Số tiền: <b>${formatCurrencyVND(tx.amount)}đ</b>
-• Reader mới: <b>${newReader.reader_name}</b> (Hoa hồng: <b>${formatCurrencyVND(newCommission)}đ</b> - ${newRate}%)${sheetStatusText}`;
+• Reader mới: <b>${newReader.reader_name}</b>${sheetStatusText}`;
 
       bot.sendMessage(chatId, responseText, { parse_mode: 'HTML' });
     } catch (err: any) {
@@ -120,51 +126,88 @@ export function setupTelegramBotCommands(): void {
     }
   });
 
-  // 3. Lệnh /them hoặc /themreader (Hỗ trợ: /them Chi, /them_Chi, /themreader Chi . 40)
-  bot.onText(/\/(?:themreader|them)(?:_([^\s@]+)|@\w+)?(?:\s+([^\s]+))?(?:\s+([^\s]+))?(?:\s+(\d+(?:\.\d+)?))?/i, (msg, match) => {
+  // 3. Lệnh /them hoặc /themreader [Tên_Reader] [Tên_Page_Tùy_Chọn]
+  bot.onText(/\/(?:themreader|them)(?:_([^\s@]+)|@\w+)?(?:\s+([^\s]+))?(?:\s+([^\s]+))?/i, (msg, match) => {
     const chatId = msg.chat.id;
 
     const rawName = match ? (match[1] || match[2]) : '';
     const readerName = rawName ? rawName.trim() : '';
+    const targetPageName = match && match[3] ? match[3].trim() : '';
 
     if (!readerName) {
-      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/them [Tên_Reader]</code> hoặc <code>/themreader [Tên] [Chữ_Ký] [%_Hoa_Hồng]</code>\n<i>Ví dụ: <code>/them Chi</code> hoặc <code>/them NA</code></i>', { parse_mode: 'HTML' });
+      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/them [Tên_Reader] [Tên_Page]</code>\n<i>Ví dụ: <code>/them Chi tarotchips03</code> hoặc <code>/them My chips02</code></i>', { parse_mode: 'HTML' });
       return;
     }
 
-    // Tự động gán chữ ký mặc định nếu không điền
-    let tagPrefix = match && match[3] ? match[3].trim() : '';
-    if (!tagPrefix) {
-      tagPrefix = readerName.toLowerCase() === 'chi' ? '.' : (readerName.toLowerCase() === 'na' ? ',' : `[${readerName}]`);
-    }
-
-    const commissionRate = match && match[4] ? parseFloat(match[4]) : 40.0;
-
     try {
       const allPages = PageModel.getAll();
-      const defaultPageId = allPages.length > 0 ? allPages[0].id : 1;
+      if (allPages.length === 0) {
+        bot.sendMessage(chatId, '❌ Chưa có Fanpage nào trên hệ thống. Dùng <code>/thempage</code> để thêm Page trước.', { parse_mode: 'HTML' });
+        return;
+      }
 
-      // Kiểm tra xem reader đã có chưa
-      let reader = ReaderModel.getByName(readerName);
-      if (reader) {
-        bot.sendMessage(chatId, `ℹ️ Reader <b>${reader.reader_name}</b> đã có sẵn trên hệ thống (Chữ ký: <code>${reader.tag_prefix}</code>, Hoa hồng: <b>${reader.commission_rate}%</b>).`, { parse_mode: 'HTML' });
+      let selectedPage = allPages[0];
+      if (targetPageName) {
+        const found = allPages.find(p => p.page_name.toLowerCase() === targetPageName.toLowerCase());
+        if (found) {
+          selectedPage = found;
+        } else {
+          bot.sendMessage(chatId, `❌ Không tìm thấy Fanpage "<b>${targetPageName}</b>". Dùng lệnh <code>/listpages</code> để xem tên Page.`, { parse_mode: 'HTML' });
+          return;
+        }
+      }
+
+      // Ký tự mặc định: Chi là dấu '.', NA là không dấu, người khác là [Tên]
+      let tagPrefix = readerName.toLowerCase() === 'chi' ? '.' : (readerName.toLowerCase() === 'na' ? '' : `[${readerName}]`);
+
+      let existing = ReaderModel.getByName(readerName);
+      if (existing) {
+        bot.sendMessage(chatId, `ℹ️ Reader <b>${existing.reader_name}</b> đã có sẵn trên hệ thống (Page: <b>${selectedPage.page_name}</b>, Ký hiệu: <code>${existing.tag_prefix || 'Không dấu'}</code>).`, { parse_mode: 'HTML' });
         return;
       }
 
       const newReader = ReaderModel.create({
-        page_id: defaultPageId,
+        page_id: selectedPage.id,
         reader_name: readerName,
-        tag_prefix: tagPrefix,
-        commission_rate: commissionRate
+        tag_prefix: tagPrefix
       });
 
-      bot.sendMessage(chatId, `✅ <b>ĐÃ THÊM READER THÀNH CÔNG!</b>\n• Tên: <b>${newReader.reader_name}</b>\n• Chữ ký nhận ca: <code>${newReader.tag_prefix}</code>\n• Hoa hồng: <b>${newReader.commission_rate}%</b>`, { parse_mode: 'HTML' });
+      bot.sendMessage(chatId, `✅ <b>ĐÃ THÊM READER THÀNH CÔNG!</b>\n• Reader: <b>${newReader.reader_name}</b>\n• Thuộc Page: <b>${selectedPage.page_name}</b>\n• Ký tự nhận diện: <code>${newReader.tag_prefix || 'Không dấu (mặc định)'}</code>`, { parse_mode: 'HTML' });
     } catch (err: any) {
       bot.sendMessage(chatId, `❌ Lỗi thêm reader: ${err.message}`);
     }
   });
 
-  // 4. Lệnh /xoareader [Tên]
+  // 4. Lệnh /doikytu [Tên_Reader] [Ký_Tự_Mới]
+  bot.onText(/\/(?:doikytu|suakytu)(?:@\w+)?(?:\s+([^\s]+))?(?:\s+([^\s]+))?/i, (msg, match) => {
+    const chatId = msg.chat.id;
+    const readerName = match && match[1] ? match[1].trim() : '';
+    const newTag = match && match[2] ? match[2].trim() : '';
+
+    if (!readerName || !newTag) {
+      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/doikytu [Tên_Reader] [Ký_Tự_Mới]</code>\n<i>Ví dụ: <code>/doikytu Chi .</code> hoặc <code>/doikytu My ,</code></i>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    try {
+      const reader = ReaderModel.getByName(readerName);
+      if (!reader) {
+        bot.sendMessage(chatId, `❌ Không tìm thấy Reader có tên "<b>${readerName}</b>". Dùng lệnh <code>/listreaders</code> để kiểm tra.`, { parse_mode: 'HTML' });
+        return;
+      }
+
+      const updated = ReaderModel.updateTagPrefix(readerName, newTag);
+      if (updated) {
+        bot.sendMessage(chatId, `✅ <b>ĐÃ ĐỔI KÝ TỰ THÀNH CÔNG!</b>\n• Reader: <b>${reader.reader_name}</b>\n• Ký tự nhận diện mới: <code>${newTag}</code>`, { parse_mode: 'HTML' });
+      } else {
+        bot.sendMessage(chatId, `❌ Cập nhật thất bại. Vui lòng thử lại.`);
+      }
+    } catch (err: any) {
+      bot.sendMessage(chatId, `❌ Lỗi: ${err.message}`);
+    }
+  });
+
+  // 5. Lệnh /xoareader [Tên]
   bot.onText(/\/xoareader(?:\s+(.+))?/, (msg, match) => {
     const chatId = msg.chat.id;
     const name = match ? match[1]?.trim() : '';
@@ -182,21 +225,33 @@ export function setupTelegramBotCommands(): void {
     }
   });
 
-  // 5. Lệnh /listreaders
+  // 6. Lệnh /listreaders (Nhóm theo từng Fanpage)
   bot.onText(/\/listreaders/, (msg) => {
     const chatId = msg.chat.id;
+    const pages = PageModel.getAll();
     const readers = ReaderModel.getAll();
 
     if (readers.length === 0) {
-      bot.sendMessage(chatId, 'Hiện chưa có Reader nào. Thêm bằng lệnh: <code>/themreader [Tên] [Chữ_Ký] [%_Hoa_Hồng]</code>', { parse_mode: 'HTML' });
+      bot.sendMessage(chatId, 'Hiện chưa có Reader nào. Thêm bằng lệnh: <code>/them [Tên_Reader] [Tên_Page]</code>', { parse_mode: 'HTML' });
       return;
     }
 
-    let text = `👥 <b>DANH SÁCH READER TRÊN HỆ THỐNG:</b>\n━━━━━━━━━━━━━━━━━━━━━\n`;
-    for (const r of readers) {
-      text += `• Reader: <b>${r.reader_name}</b> | Chữ ký: <code>${r.tag_prefix}</code> | Hoa hồng: <b>${r.commission_rate}%</b>\n`;
+    let text = `👥 <b>DANH SÁCH READER THEO FANPAGE:</b>\n━━━━━━━━━━━━━━━━━━━━━\n`;
+    for (const p of pages) {
+      const pageReaders = readers.filter(r => r.page_id === p.id);
+      text += `📍 <b>Page: ${p.page_name}</b>\n`;
+      if (pageReaders.length === 0) {
+        text += `   <i>(Chưa có reader nào)</i>\n`;
+      } else {
+        for (const r of pageReaders) {
+          const tagDisplay = r.tag_prefix ? `Ký hiệu: <code>${r.tag_prefix}</code>` : 'Mặc định không dấu';
+          text += `   • <b>${r.reader_name}</b> (${tagDisplay})\n`;
+        }
+      }
+      text += `\n`;
     }
-    bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+
+    bot.sendMessage(chatId, text.trim(), { parse_mode: 'HTML' });
   });
 
   // 6. Lệnh /thempage [Tên_Page] [Page_ID] [Page_Access_Token]

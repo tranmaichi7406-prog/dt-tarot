@@ -43,40 +43,50 @@ export class ReaderModel {
     return (result.changes || 0) > 0;
   }
 
+  static updateTagPrefix(name: string, newTagPrefix: string): boolean {
+    const stmt = db.prepare('UPDATE readers SET tag_prefix = ? WHERE LOWER(reader_name) = LOWER(?)');
+    const result = stmt.run(newTagPrefix, name);
+    return (result.changes || 0) > 0;
+  }
+
   /**
    * Quét nhận diện Reader từ tin nhắn rep khách:
-   * 1. Chi: dấu '.' cuối câu
-   * 2. NA: dấu ',' cuối câu
-   * 3. Các tag_prefix khác như [Chi], [NA], [Hieu], [Nhung]...
+   * 1. Dấu '.' ở cuối câu -> Chi
+   * 2. Tag đặc biệt của các Reader khác (nếu có cấu hình, vd: [My], [Hieu]...)
+   * 3. Tin nhắn bình thường không có dấu chấm -> Mặc định là NA
    */
   static findByTagInMessage(pageId: number, text: string): Reader | null {
     if (!text) return null;
     const readers = this.getByPageId(pageId);
+    if (readers.length === 0) return null;
+
     const trimmed = text.trim();
     const normalized = text.toLowerCase();
 
-    // 1. Nhận diện dấu câu đặc trưng ở cuối tin nhắn:
-    // Dấu '.' ở cuối câu -> Chi
-    if (trimmed.endsWith('.')) {
-      const chi = readers.find(r => r.reader_name.toLowerCase() === 'chi');
-      if (chi) return chi;
+    // Tìm reader Chi và NA
+    const chiReader = readers.find(r => r.reader_name.toLowerCase() === 'chi');
+    const naReader = readers.find(r => r.reader_name.toLowerCase() === 'na');
+
+    // 1. Kiểm tra ký hiệu của Chi (mặc định dấu '.')
+    const chiTag = chiReader?.tag_prefix || '.';
+    if (chiTag && (trimmed.endsWith(chiTag) || normalized.includes(chiTag.toLowerCase()))) {
+      return chiReader || null;
     }
 
-    // Dấu ',' ở cuối câu -> NA
-    if (trimmed.endsWith(',')) {
-      const na = readers.find(r => r.reader_name.toLowerCase() === 'na');
-      if (na) return na;
-    }
-
-    // 2. Nhận diện theo tag prefix (ví dụ: [Chi], [NA], [Hieu], [Nhung]...)
+    // 2. Nhận diện theo tag prefix của các Reader khác (nếu có)
     for (const reader of readers) {
-      if (reader.tag_prefix && reader.tag_prefix !== '.' && reader.tag_prefix !== ',') {
-        if (normalized.includes(reader.tag_prefix.toLowerCase())) {
+      if (reader.reader_name.toLowerCase() !== 'chi' && reader.reader_name.toLowerCase() !== 'na') {
+        if (reader.tag_prefix && normalized.includes(reader.tag_prefix.toLowerCase())) {
           return reader;
         }
       }
     }
 
-    return null;
+    // 3. Không có dấu chấm / không có ký tự đặc biệt -> Mặc định là NA
+    if (naReader) {
+      return naReader;
+    }
+
+    return chiReader || null;
   }
 }
