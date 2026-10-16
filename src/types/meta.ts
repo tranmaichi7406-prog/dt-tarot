@@ -1,7 +1,7 @@
 // Types cho Meta Webhook payload (Instagram Messaging API via Facebook Graph API v19.0+)
 
 export interface MetaWebhookPayload {
-  object: 'instagram' | 'page';
+  object: 'instagram' | 'page' | 'threads' | string;
   entry: MetaWebhookEntry[];
 }
 
@@ -14,7 +14,7 @@ export interface MetaWebhookEntry {
 
 export interface MetaMessagingEvent {
   sender: {
-    id: string; // Instagram-scoped ID (IGSID)
+    id: string; // Instagram-scoped ID (IGSID) hoặc PSID
   };
   recipient: {
     id: string; // Instagram Page ID
@@ -29,6 +29,14 @@ export interface MetaMessagingEvent {
     quick_reply?: {
       payload: string;
     };
+    referral?: {
+      source?: string;
+      type?: string;
+    };
+  };
+  referral?: {
+    source?: string;
+    type?: string;
   };
   read?: {
     watermark: number;

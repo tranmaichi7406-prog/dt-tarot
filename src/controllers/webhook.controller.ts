@@ -38,8 +38,8 @@ export class WebhookController {
     // Phản hồi 200 OK ngay lập tức cho Meta để tránh timeout (tiêu chuẩn Meta < 5s)
     res.status(200).send('EVENT_RECEIVED');
 
-    if (!payload || (payload.object !== 'instagram' && payload.object !== 'page')) {
-      logger.debug('[MetaWebhook] Bỏ qua payload không thuộc instagram/page:', payload?.object);
+    if (!payload || (payload.object !== 'instagram' && payload.object !== 'page' && payload.object !== 'threads')) {
+      logger.debug('[MetaWebhook] Bỏ qua payload không thuộc instagram/page/threads:', payload?.object);
       return;
     }
 
@@ -51,7 +51,7 @@ export class WebhookController {
 
         for (const event of events) {
           try {
-            await WebhookService.handleMessagingEvent(event, entryPageId);
+            await WebhookService.handleMessagingEvent(event, entryPageId, payload.object);
           } catch (eventErr: any) {
             logger.error('[MetaWebhook] Lỗi xử lý sự kiện messaging:', eventErr.message);
           }

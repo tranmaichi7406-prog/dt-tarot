@@ -79,14 +79,16 @@ export class OCRService {
 
       logger.debug('[OCR] Raw text nhận diện:', text);
 
-      // Trích xuất số tiền và mã giao dịch bằng biểu thức chính quy (Regex)
+      // Trích xuất số tiền, mã giao dịch và tên người chuyển bằng Regex
       const amount = this.extractAmount(text);
       const transactionCode = this.extractTransactionCode(text, imageBuffer);
+      const senderName = this.extractSenderName(text);
 
       return {
         rawText: text,
         amount,
         transactionCode,
+        senderName,
         confidence
       };
     } catch (error: any) {
@@ -95,6 +97,7 @@ export class OCRService {
         rawText: '',
         amount: null,
         transactionCode: null,
+        senderName: null,
         confidence: 0
       };
     }
@@ -184,6 +187,73 @@ export class OCRService {
     // Đảm bảo không trùng và nếu khách gửi lại đúng ảnh đó thì vẫn nhận diện được trùng
     const hash = crypto.createHash('md5').update(imageBuffer).digest('hex').substring(0, 12).toUpperCase();
     return `IMG_${hash}`;
+  }
+
+  /**
+   * Chuyển chuỗi tên sang dạng viết hoa chữ cái đầu mỗi từ (Title Case)
+   */
+  private static toTitleCase(str: string): string {
+    return str.toLowerCase().replace(/(?:^|\s)\S/g, (a) => a.toUpperCase());
+  }
+
+  /**
+   * Làm sạch chuỗi tên người gửi từ bill
+   */
+  private static cleanCandidate(raw: string): string {
+    let c = raw.trim();
+    // Bỏ từ 'nợ' hoặc 'nguồn' hoặc 'chuyển' nếu còn dính
+    c = c.replace(/^(?:nợ|nguồn|chuyển|gửi)\s*[:\-–]?\s*/i, '');
+    // Bỏ STK hoặc số ở đầu (ví dụ: 1012345678 - HOANG THAO NHI)
+    c = c.replace(/^[0-9\s\-_–:]+/, '');
+    // Bỏ các chú thích trong ngoặc
+    c = c.replace(/\(.*?\)/g, '');
+    // Bỏ STK ở đuôi nếu có
+    c = c.replace(/[\s\-_–:]+[0-9]+.*$/, '');
+    return c.trim();
+  }
+
+  /**
+   * Trích xuất tên người gửi (khách hàng) từ bill ngân hàng (Fallback khi không lấy được nickname)
+   */
+  private static extractSenderName(text: string): string | null {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const senderKeywords = [
+      /(?:người\s*gửi|nguoi\s*gui|người\s*chuyển|nguoi\s*chuyen|tài\s*khoản\s*nguồn|tai\s*khoan\s*nguon|tài\s*khoản\s*trích(?:\s*nợ)?|tai\s*khoan\s*trich(?:\s*no)?|bên\s*chuyển|ben\s*chuyen|từ\s*tài\s*khoản)\s*[:\-–]?\s*(.*)/i,
+      /(?:^|\s)từ\s*[:\-–]\s*(.*)/i
+    ];
+
+    const blacklist = [
+      'vietcombank', 'mbbank', 'techcombank', 'vietinbank', 'agribank', 'vpbank', 'tpbank', 'bidv', 'acb', 'momo',
+      'thanh cong', 'thanh toán', 'chuyen khoan', 'giao dich', 'ngan hang', 'stk', 'vnd', 'vnđ',
+      'số tiền', 'so tien', 'nội dung', 'noi dung', 'thành công'
+    ];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      for (const pattern of senderKeywords) {
+        const match = line.match(pattern);
+        if (match) {
+          let candidate = match[1]?.trim() || '';
+          candidate = this.cleanCandidate(candidate);
+          if (!candidate || candidate.length < 3 || /^\d+$/.test(candidate) || blacklist.some(b => candidate.toLowerCase().includes(b))) {
+            if (i + 1 < lines.length) {
+              candidate = this.cleanCandidate(lines[i + 1].trim());
+            }
+          }
+          if (candidate) {
+            const nameMatch = candidate.match(/([A-ZÀ-Ỹa-zà-ỹ\s]{3,35})/);
+            if (nameMatch) {
+              const cleanName = nameMatch[1].trim();
+              const isBlacklisted = blacklist.some(b => cleanName.toLowerCase().includes(b));
+              if (!isBlacklisted && cleanName.split(/\s+/).length >= 2) {
+                return this.toTitleCase(cleanName);
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
   }
 
   /**

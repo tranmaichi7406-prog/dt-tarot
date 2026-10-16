@@ -86,8 +86,7 @@ export class TelegramService {
         pagesSection += `   <i>(Chưa có ca nào trong ngày)</i>\n\n`;
       } else {
         for (const reader of page.readers) {
-          const comStr = formatCurrencyVND(reader.commission_total || 0);
-          pagesSection += `   • Reader <b>${reader.reader_name}</b>: ${reader.count} ca ➔ ${formatCurrencyVND(reader.amount)} VNĐ (Hoa hồng: ${comStr}đ)\n`;
+          pagesSection += `   • Reader <b>${reader.reader_name}</b>: ${reader.count} ca ➔ ${formatCurrencyVND(reader.amount)} VNĐ\n`;
         }
         pagesSection += '\n';
       }

@@ -12,12 +12,27 @@ import { formatDateTimeVN, formatDateVN } from '../utils/currency';
 
 export class WebhookService {
   /**
-   * Xử lý sự kiện tin nhắn từ Meta Business Suite (Facebook Page Messaging API)
+    * Xử lý sự kiện tin nhắn từ Meta Business Suite (Facebook Page Messaging API)
    */
-  static async handleMessagingEvent(event: MetaMessagingEvent, entryPageId?: string): Promise<void> {
+  static async handleMessagingEvent(
+    event: MetaMessagingEvent,
+    entryPageId?: string,
+    payloadObject?: string
+  ): Promise<void> {
     const isEcho = Boolean(event.message?.is_echo);
     const senderId = event.sender?.id;
     const recipientId = event.recipient?.id;
+
+    // Phân loại nguồn traffic: Instagram, Facebook hoặc Threads
+    let platform: 'Instagram' | 'Facebook' | 'Threads' = 'Instagram';
+    const referralSource = (event.message as any)?.referral?.source || (event as any).referral?.source;
+    if (payloadObject === 'threads' || referralSource === 'THREADS') {
+      platform = 'Threads';
+    } else if (payloadObject === 'page') {
+      platform = 'Facebook';
+    } else {
+      platform = 'Instagram';
+    }
 
     // Xác định Facebook Fanpage ID từ event
     const targetFbPageId = isEcho ? senderId : (entryPageId || recipientId);
@@ -54,9 +69,9 @@ export class WebhookService {
     // 2. LUỒNG INBOUND (Khách gửi tin nhắn hoặc ảnh bill tới Fanpage)
     const customerId = senderId;
     
-    // Lấy thông tin Tên Facebook của khách qua Graph API
+    // Lấy thông tin Tên/Nickname của khách qua Graph API
     const profile = await MetaApiService.getCustomerProfile(customerId, page.access_token);
-    const customerName = profile.name;
+    let customerName = profile.name;
 
     // Cập nhật phiên trò chuyện của khách
     const session = SessionModel.getOrCreateSession(page.id, customerId, customerName);
@@ -66,19 +81,26 @@ export class WebhookService {
     const imageAttachments = attachments.filter(att => att.type === 'image');
 
     if (imageAttachments.length > 0) {
-      logger.info(`[Webhook] Khách "${customerName}" đã gửi ${imageAttachments.length} ảnh bill tới Fanpage [${page.page_name}]`);
+      logger.info(`[Webhook] Khách "${customerName}" đã gửi ${imageAttachments.length} ảnh bill tới Fanpage [${page.page_name}] (${platform})`);
 
       for (const att of imageAttachments) {
         const imageUrl = att.payload?.url;
         if (!imageUrl) continue;
 
         try {
-          // OCR bóc tách số tiền và mã giao dịch (hoàn toàn cục bộ, 0 token AI)
+          // OCR bóc tách số tiền, mã giao dịch và tên người chuyển (hoàn toàn cục bộ, 0 token AI)
           const ocrResult = await OCRService.processBill(imageUrl);
 
           if (!ocrResult.amount || ocrResult.amount <= 0) {
             logger.warn(`[OCR] Không nhận diện được số tiền hợp lệ trong ảnh của khách "${customerName}"`);
             continue;
+          }
+
+          // Nếu tên khách qua API chưa lấy được (dạng fallback "Khách (xxxx)") và OCR đọc được tên người chuyển trên bill:
+          if ((!profile.isReal || customerName.startsWith('Khách')) && ocrResult.senderName) {
+            logger.info(`[CustomerName] Cập nhật tên khách từ bill ngân hàng: "${customerName}" ➔ "${ocrResult.senderName}"`);
+            customerName = ocrResult.senderName;
+            SessionModel.updateCustomerName(session.id, customerName);
           }
 
           const transactionCode = ocrResult.transactionCode || `TXN_${Date.now()}`;
@@ -125,7 +147,7 @@ export class WebhookService {
               packageName: packageName,
               amount: ocrResult.amount,
               pageName: displayPageName,
-              trafficSource: 'Instagram'
+              trafficSource: platform
             });
           } catch (sheetErr: any) {
             logger.error(`[GoogleSheets] Lỗi ghi sheet: ${sheetErr.message}`);

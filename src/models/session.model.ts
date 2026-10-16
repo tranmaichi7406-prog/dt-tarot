@@ -74,4 +74,14 @@ export class SessionModel {
     }
     return false;
   }
+
+  static updateCustomerName(sessionId: number, customerName: string): boolean {
+    const stmt = db.prepare(`
+      UPDATE sessions
+      SET customer_name = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    const res = stmt.run(customerName, sessionId);
+    return res.changes > 0;
+  }
 }

@@ -4,36 +4,51 @@ import { logger } from '../utils/logger';
 
 export class MetaApiService {
   /**
-   * Lấy thông tin Tên Facebook của khách hàng thông qua Graph API v19.0 (Facebook Page Messaging)
-   * Endpoint: GET https://graph.facebook.com/v19.0/{psid}?fields=first_name,last_name,name&access_token={page_token}
+   * Lấy thông tin Tên/Nickname của khách hàng thông qua Graph API v19.0+
+   * Instagram: fields=name,username (vd: win aeuriel, Cam Ly)
+   * Facebook: fields=first_name,last_name,name (vd: Hồng Thủy)
    */
   static async getCustomerProfile(
-    psid: string,
+    userId: string,
     pageAccessToken: string
-  ): Promise<{ name: string }> {
+  ): Promise<{ name: string; isReal: boolean }> {
     try {
       if (!pageAccessToken || pageAccessToken.startsWith('mock_')) {
         return {
-          name: `Khách Facebook (${psid.slice(-4)})`
+          name: `Khách (${userId.slice(-4)})`,
+          isReal: false
         };
       }
 
-      const url = `${config.meta.graphApiBaseUrl}/${psid}`;
+      const url = `${config.meta.graphApiBaseUrl}/${userId}`;
       const response = await axios.get(url, {
         params: {
-          fields: 'first_name,last_name,name',
+          fields: 'name,username,first_name,last_name',
           access_token: pageAccessToken
         },
         timeout: 8000
       });
 
+      const data = response.data;
+      // Instagram trả về username (nickname) hoặc name; Facebook trả về name hoặc last_name + first_name
+      const realName = data.username || data.name || `${data.last_name || ''} ${data.first_name || ''}`.trim();
+
+      if (realName) {
+        return {
+          name: realName,
+          isReal: true
+        };
+      }
+
       return {
-        name: response.data.name || `${response.data.last_name || ''} ${response.data.first_name || ''}`.trim() || `Khách hàng (${psid.slice(-4)})`
+        name: `Khách (${userId.slice(-4)})`,
+        isReal: false
       };
     } catch (error: any) {
-      logger.warn(`[MetaAPI] Không lấy được tên Facebook của PSID ${psid}: ${error.response?.data?.error?.message || error.message}`);
+      logger.warn(`[MetaAPI] Không lấy được profile của ID ${userId}: ${error.response?.data?.error?.message || error.message}`);
       return {
-        name: `Khách hàng (${psid.slice(-4)})`
+        name: `Khách (${userId.slice(-4)})`,
+        isReal: false
       };
     }
   }

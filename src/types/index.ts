@@ -51,5 +51,6 @@ export interface OCRResult {
   rawText: string;
   amount: number | null;
   transactionCode: string | null;
+  senderName?: string | null;
   confidence: number;
 }
