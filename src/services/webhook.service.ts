@@ -173,7 +173,7 @@ export class WebhookService {
           // 3. Bắn thông báo REAL-TIME về nhóm Telegram duy nhất theo mẫu yêu cầu
           await TelegramService.sendRealtimeTransactionAlert({
             dailyOrderNumber: dailyOrderNumber,
-            pageName: page.page_name,
+            pageName: displayPageName,
             customerName: customerName,
             readerName: readerName,
             amount: ocrResult.amount,
