@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { TelegramService } from '../services/telegram.service';
+import { ReconciliationService } from '../services/reconciliation.service';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 
@@ -9,7 +10,15 @@ import { config } from '../config';
 export function startDailyReportCron(): void {
   // "0 23 * * *" = Đúng 23:00 mỗi tối
   cron.schedule('0 23 * * *', async () => {
-    logger.info('⏰ [CRON] Bắt đầu tự động tổng hợp và gửi Báo Cáo Doanh Thu Cuối Ngày lúc 23:00...');
+    logger.info('⏰ [CRON] Bắt đầu tự động rà soát bill Meta và tổng hợp Báo Cáo Doanh Thu Cuối Ngày lúc 23:00...');
+    try {
+      // 1. Tự động rà soát bill trên Meta trước để bù bill bị lỡ (nếu có)
+      await ReconciliationService.runReconciliation(false);
+    } catch (recErr: any) {
+      logger.error('[CRON] Lỗi khi chạy rà soát bill tự động:', recErr.message);
+    }
+
+    // 2. Gửi báo cáo doanh thu cuối ngày chính xác 100%
     await executeDailyReports();
   }, {
     scheduled: true,

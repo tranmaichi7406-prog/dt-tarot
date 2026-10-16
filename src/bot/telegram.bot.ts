@@ -4,6 +4,7 @@ import { PageModel } from '../models/page.model';
 import { ReaderModel } from '../models/reader.model';
 import { TransactionModel } from '../models/transaction.model';
 import { GoogleSheetsService } from '../services/sheets.service';
+import { ReconciliationService } from '../services/reconciliation.service';
 import { formatCurrencyVND } from '../utils/currency';
 import { logger } from '../utils/logger';
 
@@ -14,7 +15,7 @@ export function setupTelegramBotCommands(): void {
     return;
   }
 
-  // Đăng ký menu lệnh gợi ý khi người dùng gõ "/" trên Telegram (chuẩn xác 100% theo yêu cầu)
+  // Đăng ký menu lệnh gợi ý khi người dùng gõ "/" trên Telegram
   bot.setMyCommands([
     { command: 'doi', description: 'Đổi Reader cho đơn' },
     { command: 'them', description: 'Thêm Reader vào Page (Cú pháp: /them [Tên_Reader] [Tên_Page])' },
@@ -22,7 +23,8 @@ export function setupTelegramBotCommands(): void {
     { command: 'doikytu', description: 'Đổi ký tự nhận diện Reader' },
     { command: 'listreaders', description: 'Xem danh sách Reader theo từng Page' },
     { command: 'listpages', description: 'Xem danh sách các Fanpage' },
-    { command: 'baocao', description: 'Xem tổng kết doanh thu hôm nay' }
+    { command: 'baocao', description: 'Xem tổng kết doanh thu hôm nay' },
+    { command: 'rasoat', description: 'Rà soát bill Meta & tự động bù đơn bị lỡ' }
   ]).catch((err) => {
     logger.warn(`[TelegramBot] Không thể đăng ký setMyCommands: ${err.message}`);
   });
@@ -350,7 +352,25 @@ export function setupTelegramBotCommands(): void {
     bot.sendMessage(chatId, statusMsg, { parse_mode: 'HTML' });
   });
 
-  // 11. Phản hồi khi người dùng nhắn tin thông thường (không gõ dấu /)
+  // 11. Lệnh /rasoat: Rà soát toàn bộ tin nhắn bill trên Meta trong ngày & tự động bù vào Google Sheet
+  bot.onText(/\/rasoat/, async (msg) => {
+    const chatId = msg.chat.id;
+    let waitMsg: any = null;
+    try {
+      waitMsg = await bot.sendMessage(chatId, '⏳ <b>Đang quét tin nhắn Meta và đối chiếu số liệu với Google Sheet...</b>\n<i>Vui lòng đợi 5-10 giây...</i>', { parse_mode: 'HTML' });
+    } catch {}
+
+    try {
+      await ReconciliationService.runReconciliation(true);
+      if (waitMsg && waitMsg.message_id) {
+        bot.deleteMessage(chatId, waitMsg.message_id).catch(() => {});
+      }
+    } catch (err: any) {
+      bot.sendMessage(chatId, `❌ Lỗi khi rà soát bill: ${err.message}`);
+    }
+  });
+
+  // 12. Phản hồi khi người dùng nhắn tin thông thường (không gõ dấu /)
   bot.on('message', (msg) => {
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.chat.type === 'private') {

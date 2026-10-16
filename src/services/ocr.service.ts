@@ -219,7 +219,8 @@ export class OCRService {
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const senderKeywords = [
       /(?:người\s*gửi|nguoi\s*gui|người\s*chuyển|nguoi\s*chuyen|tài\s*khoản\s*nguồn|tai\s*khoan\s*nguon|tài\s*khoản\s*trích(?:\s*nợ)?|tai\s*khoan\s*trich(?:\s*no)?|bên\s*chuyển|ben\s*chuyen|từ\s*tài\s*khoản)\s*[:\-–]?\s*(.*)/i,
-      /(?:^|\s)từ\s*[:\-–]\s*(.*)/i
+      /(?:^|\s)từ\s*[:\-–]\s*(.*)/i,
+      /(?:^|\n|\r)([A-ZÀ-Ỹ\s]{3,35})\s+(?:chuyen\s*tien|chuyển\s*tiền|ck|thanh\s*toan)/i
     ];
 
     const blacklist = [
