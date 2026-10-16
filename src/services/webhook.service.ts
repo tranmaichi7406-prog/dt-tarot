@@ -8,7 +8,7 @@ import { OCRService } from './ocr.service';
 import { TelegramService } from './telegram.service';
 import { GoogleSheetsService } from './sheets.service';
 import { logger } from '../utils/logger';
-import { formatDateTimeVN } from '../utils/currency';
+import { formatDateTimeVN, formatDateVN } from '../utils/currency';
 
 export class WebhookService {
   /**
@@ -110,22 +110,22 @@ export class WebhookService {
           // Đánh số đơn tự động trong ngày (#1, #2, #3...)
           const dailyOrderNumber = TransactionModel.getNextDailyOrderNumber();
 
-          // Phân loại gói Tarot theo số tiền
-          const packageName = OCRService.detectPackage(ocrResult.amount);
-          const dateTimeStr = formatDateTimeVN(new Date());
+          // Định dạng theo đúng chuẩn các dòng có sẵn trên file Google Sheets của người dùng:
+          // [Cột A: Ngày (DD/MM/YYYY) | Cột B: Khách | Cột C: Reader | Cột D: Gói xem ('Tarot') | Cột E: Số tiền | Cột F: Page | Cột G: Nguồn]
+          const dateStr = formatDateVN(new Date());
+          const displayPageName = page.page_name === 'tarotchips' ? 'tarotchips03' : page.page_name;
+          const packageName = 'Tarot';
 
-          // 1. Ghi nối tiếp vào file Google Sheets có sẵn theo đúng 7 cột:
-          // [Cột A: Ngày | Cột B: Khách | Cột C: Reader | Cột D: Gói xem | Cột E: Số tiền | Cột F: Page | Cột G: Nguồn khách]
           let sheetRowNumber: number | null = null;
           try {
             sheetRowNumber = await GoogleSheetsService.appendTransaction({
-              dateTime: dateTimeStr,
+              dateTime: dateStr,
               customerName: customerName,
-              readerName: readerName,
+              readerName: readerName === 'Chưa có Reader nhận ca' ? '' : readerName,
               packageName: packageName,
               amount: ocrResult.amount,
-              pageName: page.page_name,
-              trafficSource: 'Facebook Fanpage'
+              pageName: displayPageName,
+              trafficSource: 'Instagram'
             });
           } catch (sheetErr: any) {
             logger.error(`[GoogleSheets] Lỗi ghi sheet: ${sheetErr.message}`);

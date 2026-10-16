@@ -69,37 +69,46 @@ export class GoogleSheetsService {
     const client = await this.getClient();
     if (!client) return null;
 
+    // Định dạng số tiền có dấu chấm phân cách hàng nghìn (vd: 25.000) giống toàn bộ các dòng có sẵn
+    const formattedAmount = data.amount.toLocaleString('vi-VN');
+
     const rowValues = [
       data.dateTime,
       data.customerName,
-      data.readerName || 'Chưa rõ',
-      data.packageName,
-      data.amount,
+      data.readerName || '',
+      data.packageName || 'Tarot',
+      formattedAmount,
       data.pageName,
-      data.trafficSource || 'Facebook Fanpage'
+      data.trafficSource || 'Facebook'
     ];
 
     try {
-      const response = await client.spreadsheets.values.append({
+      // 1. Quét Cột A để tìm chính xác dòng trống tiếp theo (tránh bị nhảy dòng do công thức ở cột Năm/Tháng)
+      const colARes = await client.spreadsheets.values.get({
         spreadsheetId,
-        range: 'A:G',
+        range: 'Data!A:A'
+      });
+      const rows = colARes.data.values || [];
+      
+      let nextRow = 2; // Bắt đầu sau dòng tiêu đề (dòng 1)
+      while (nextRow <= rows.length && rows[nextRow - 1] && rows[nextRow - 1][0] && rows[nextRow - 1][0].toString().trim() !== '') {
+        nextRow++;
+      }
+
+      // 2. Điền chính xác vào dòng kế tiếp (ví dụ: dòng 237)
+      await client.spreadsheets.values.update({
+        spreadsheetId,
+        range: `Data!A${nextRow}:G${nextRow}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: [rowValues]
         }
       });
 
-      const updatedRange = response.data.updates?.updatedRange || '';
-      logger.info(`[GoogleSheets] Đã ghi nối tiếp vào dòng: ${updatedRange}`);
-
-      // Bóc tách số dòng từ updatedRange (ví dụ: 'Trang tính1'!A15:G15 -> dòng 15)
-      const match = updatedRange.match(/([0-9]+):[A-Z]+([0-9]+)/);
-      if (match && match[1]) {
-        return parseInt(match[1], 10);
-      }
-      return null;
+      logger.info(`[GoogleSheets] Đã điền chính xác vào dòng kế tiếp: Data!A${nextRow}:G${nextRow}`);
+      return nextRow;
     } catch (error: any) {
-      logger.error('[GoogleSheets] Lỗi khi ghi nối tiếp vào Sheets:', error.message);
+      logger.error('[GoogleSheets] Lỗi khi ghi vào Sheets:', error.message);
       return null;
     }
   }
