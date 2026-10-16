@@ -144,6 +144,62 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Lấy danh sách tất cả các giao dịch trong ngày từ Google Sheets (tab Data)
+   */
+  static async getRowsByDate(dateStr: string): Promise<Array<{
+    rowNumber: number;
+    date: string;
+    customerName: string;
+    readerName: string;
+    packageName: string;
+    amount: number;
+    rawAmount: string;
+    pageName: string;
+    trafficSource: string;
+  }>> {
+    const spreadsheetId = config.google.spreadsheetId;
+    if (!spreadsheetId) return [];
+
+    const client = await this.getClient();
+    if (!client) return [];
+
+    try {
+      const res = await client.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Data!A:G'
+      });
+      const rows = res.data.values || [];
+      const records: Array<any> = [];
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || !row[0]) continue;
+        const rowDate = row[0].toString().trim();
+        if (rowDate === dateStr) {
+          const rawAmount = (row[4] || '0').toString().trim();
+          // Chuyển "100.000" hoặc "100000" thành number 100000
+          const numericAmount = parseInt(rawAmount.replace(/\D/g, ''), 10) || 0;
+          records.push({
+            rowNumber: i + 1,
+            date: rowDate,
+            customerName: (row[1] || '').toString().trim(),
+            readerName: (row[2] || '').toString().trim(),
+            packageName: (row[3] || '').toString().trim(),
+            amount: numericAmount,
+            rawAmount: rawAmount,
+            pageName: (row[5] || '').toString().trim(),
+            trafficSource: (row[6] || '').toString().trim()
+          });
+        }
+      }
+      return records;
+    } catch (error: any) {
+      logger.error('[GoogleSheets] Lỗi đọc dữ liệu Data:', error.message);
+      return [];
+    }
+  }
+
+  /**
    * Lấy địa chỉ email của Service Account để đưa cho người dùng bấm Chia sẻ
    */
   static getServiceAccountEmail(): string | null {

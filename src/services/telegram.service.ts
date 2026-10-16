@@ -3,6 +3,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { formatCurrencyVND, formatDateTimeVN, formatDateVN } from '../utils/currency';
 import { TransactionModel } from '../models/transaction.model';
+import { GoogleSheetsService } from './sheets.service';
 
 export class TelegramService {
   private static botInstance: TelegramBot | null = null;
@@ -110,12 +111,64 @@ export class TelegramService {
   }
 
   /**
-   * 2. BÁO CÁO DOANH THU TOÀN HỆ THỐNG CUỐI NGÀY (Gộp tất cả các Page & Reader)
+   * 2. BÁO CÁO DOANH THU TOÀN HỆ THỐNG CUỐI NGÀY (Lấy chuẩn 100% từ Google Sheets tab Data)
    */
-  static generateSystemDailyReportMessage(): string {
-    const summary = TransactionModel.getSystemDailySummary();
+  static async generateSystemDailyReportMessage(): Promise<string> {
     const dateFormatted = formatDateVN(new Date());
 
+    // 1. Đọc trực tiếp từ Google Sheets tab Data để báo cáo luôn luôn chuẩn xác
+    const sheetRows = await GoogleSheetsService.getRowsByDate(dateFormatted);
+
+    if (sheetRows.length > 0) {
+      let totalRevenue = 0;
+      let totalOrders = sheetRows.length;
+
+      // Gom nhóm theo Page và Reader
+      const pageMap = new Map<string, {
+        totalAmount: number;
+        readers: Map<string, { count: number; amount: number }>;
+      }>();
+
+      for (const row of sheetRows) {
+        totalRevenue += row.amount;
+        const pageKey = row.pageName || 'tarotchips03';
+        if (!pageMap.has(pageKey)) {
+          pageMap.set(pageKey, { totalAmount: 0, readers: new Map() });
+        }
+        const pData = pageMap.get(pageKey)!;
+        pData.totalAmount += row.amount;
+
+        const readerKey = row.readerName || 'Chưa gán Reader';
+        if (!pData.readers.has(readerKey)) {
+          pData.readers.set(readerKey, { count: 0, amount: 0 });
+        }
+        const rData = pData.readers.get(readerKey)!;
+        rData.count += 1;
+        rData.amount += row.amount;
+      }
+
+      let pagesSection = '';
+      for (const [pName, pData] of pageMap.entries()) {
+        const orderCount = Array.from(pData.readers.values()).reduce((sum, r) => sum + r.count, 0);
+        pagesSection += `📍 <b>${pName}</b>: <b>${formatCurrencyVND(pData.totalAmount)} VNĐ</b> (${orderCount} ca)\n`;
+        for (const [rName, rData] of pData.readers.entries()) {
+          pagesSection += `   • Reader <b>${rName}</b>: ${rData.count} ca ➔ ${formatCurrencyVND(rData.amount)} VNĐ\n`;
+        }
+        pagesSection += '\n';
+      }
+
+      return `📊 <b>BÁO CÁO DOANH THU TOÀN HỆ THỐNG NGÀY ${dateFormatted}</b>
+━━━━━━━━━━━━━━━━━━━━━
+💰 <b>TỔNG DOANH THU TẤT CẢ CÁC PAGE:</b> <b>${formatCurrencyVND(totalRevenue)} VNĐ</b>
+🎯 <b>TỔNG SỐ CA PHỤC VỤ:</b> <b>${totalOrders} ca</b>
+━━━━━━━━━━━━━━━━━━━━━
+<b>CHI TIẾT THEO TỪNG PAGE:</b>
+
+${pagesSection.trim()}`;
+    }
+
+    // 2. Fallback sang SQLite nếu Sheets chưa có dòng nào
+    const summary = TransactionModel.getSystemDailySummary();
     let pagesSection = '';
 
     for (const page of summary.pagesSummary) {
@@ -130,8 +183,7 @@ export class TelegramService {
       }
     }
 
-    const reportMessage = 
-`📊 <b>BÁO CÁO DOANH THU TOÀN HỆ THỐNG NGÀY ${dateFormatted}</b>
+    return `📊 <b>BÁO CÁO DOANH THU TOÀN HỆ THỐNG NGÀY ${dateFormatted}</b>
 ━━━━━━━━━━━━━━━━━━━━━
 💰 <b>TỔNG DOANH THU TẤT CẢ CÁC PAGE:</b> <b>${formatCurrencyVND(summary.totalRevenueAllPages)} VNĐ</b>
 🎯 <b>TỔNG SỐ CA PHỤC VỤ:</b> <b>${summary.totalOrdersAllPages} ca</b>
@@ -139,8 +191,6 @@ export class TelegramService {
 <b>CHI TIẾT THEO TỪNG PAGE:</b>
 
 ${pagesSection.trim()}`;
-
-    return reportMessage;
   }
 
   static async sendSystemDailyReport(targetChatId?: string): Promise<boolean> {
@@ -148,7 +198,7 @@ ${pagesSection.trim()}`;
     const chatId = targetChatId || config.telegram.managerChatId;
     if (!bot || !chatId) return false;
 
-    const message = this.generateSystemDailyReportMessage();
+    const message = await this.generateSystemDailyReportMessage();
     try {
       await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
       logger.info(`[Telegram] Đã gửi báo cáo tổng hợp hệ thống tới: ${chatId}`);

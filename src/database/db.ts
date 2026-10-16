@@ -87,7 +87,7 @@ export function initDatabase(): void {
   try {
     const pageStmt = db.prepare('SELECT COUNT(*) as count FROM pages');
     const pageCount = (pageStmt.get() as any)?.count || 0;
-    const currentToken = 'EAAdXu1ebxMUBSqj9MFZAVZBDyDwh1TD8NZB8fRY9SC9t4o1hNdBWMx7aBbzn9eDabqghAYvYgI6XzgULysnVf4XaPweELMltoxbXoBfe0GTjLF7oToZCX3NUUXn9pewyZC6q80oMzYyedrb0YN2M8r2LplZCiv4hKpH6i2NYRP0lWLOJZAM1ZCwV9hJbncdr241qNeb8mBb2HfWOWZBwCx4XDWeomvuClZA4PZBZB9yvUp4ckwZDZD';
+    const currentToken = 'EAAdXu1ebxMUBSpU6ZC48OB8DwcOKSjQzAV8KzXaPjCfptCTZBbBrz5CVcFwxplFGqfhTglUJrHoHHcf0ZAYRfnvWpAq1p4b4eZC2M2wgkh3tyWHzDd0rSFv0dGsijUT4VruXMAEVDMUoL4FFv1IumBLeg8oFjbPPIXafNf8JL0cK8mksMZA000aczZCCtJe8CHnCPPB4CkSXxHeq4Kq70k156MuS6QciLTwtwKBqgZD';
     if (pageCount === 0) {
       db.prepare(`
         INSERT INTO pages (id, page_name, fb_page_id, access_token, telegram_group_id)

@@ -325,10 +325,14 @@ export function setupTelegramBotCommands(): void {
   });
 
   // 9. Lệnh /baocao
-  bot.onText(/\/baocao/, (msg) => {
+  bot.onText(/\/baocao/, async (msg) => {
     const chatId = msg.chat.id;
-    const systemReport = TelegramService.generateSystemDailyReportMessage();
-    bot.sendMessage(chatId, systemReport, { parse_mode: 'HTML' });
+    try {
+      const systemReport = await TelegramService.generateSystemDailyReportMessage();
+      bot.sendMessage(chatId, systemReport, { parse_mode: 'HTML' });
+    } catch (err: any) {
+      bot.sendMessage(chatId, `❌ Lỗi khi xuất báo cáo: ${err.message}`);
+    }
   });
 
   // 10. Lệnh /ping hoặc /status để kiểm tra ngay lập tức bot có đang online không

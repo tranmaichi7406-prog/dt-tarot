@@ -9,7 +9,16 @@ export class PageModel {
 
   static getByFbPageId(fbPageId: string): Page | undefined {
     const stmt = db.prepare('SELECT * FROM pages WHERE fb_page_id = ?');
-    return stmt.get(fbPageId) as unknown as Page | undefined;
+    const exact = stmt.get(fbPageId) as unknown as Page | undefined;
+    if (exact) return exact;
+
+    // Fallback đa nền tảng: Nếu chỉ có 1 Page trong hệ thống, nhận luôn cho cả Instagram Direct & Facebook
+    const all = this.getAll();
+    if (all.length === 1) {
+      return all[0];
+    }
+
+    return undefined;
   }
 
   static getAll(): Page[] {
