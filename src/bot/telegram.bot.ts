@@ -185,7 +185,7 @@ export function setupTelegramBotCommands(): void {
     const newTag = match && match[2] ? match[2].trim() : '';
 
     if (!readerName || !newTag) {
-      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/doikytu [Tên_Reader] [Ký_Tự_Mới]</code>\n<i>Ví dụ: <code>/doikytu Chi .</code> hoặc <code>/doikytu My ,</code></i>', { parse_mode: 'HTML' });
+      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/doikytu [Tên_Reader] [Ký_Tự_Mới]</code>\n<i>Ví dụ:\n• Đặt ký tự có dấu: <code>/doikytu Chi .</code>\n• Bỏ ký tự (thành mặc định không dấu): <code>/doikytu NA none</code></i>', { parse_mode: 'HTML' });
       return;
     }
 
@@ -196,9 +196,16 @@ export function setupTelegramBotCommands(): void {
         return;
       }
 
-      const updated = ReaderModel.updateTagPrefix(readerName, newTag);
+      const isRemoveTag = ['none', 'khong', 'xoa', '0', '-'].includes(newTag.toLowerCase());
+      const finalTag = isRemoveTag ? '' : newTag;
+
+      const updated = ReaderModel.updateTagPrefix(readerName, finalTag);
       if (updated) {
-        bot.sendMessage(chatId, `✅ <b>ĐÃ ĐỔI KÝ TỰ THÀNH CÔNG!</b>\n• Reader: <b>${reader.reader_name}</b>\n• Ký tự nhận diện mới: <code>${newTag}</code>`, { parse_mode: 'HTML' });
+        if (isRemoveTag) {
+          bot.sendMessage(chatId, `✅ <b>ĐÃ ĐẶT LÀM READER MẶC ĐỊNH!</b>\n• Reader: <b>${reader.reader_name}</b>\n• Ký tự: <i>(Không cần ký tự)</i>\n👉 <i>Từ nay tin nhắn rep bình thường (không có ký tự đặc biệt) sẽ tự động gán cho <b>${reader.reader_name}</b>!</i>`, { parse_mode: 'HTML' });
+        } else {
+          bot.sendMessage(chatId, `✅ <b>ĐÃ ĐỔI KÝ TỰ THÀNH CÔNG!</b>\n• Reader: <b>${reader.reader_name}</b>\n• Ký tự nhận diện: <code>${finalTag}</code>\n👉 <i>Từ nay tin nhắn rep có <code>${finalTag}</code> sẽ tự động gán cho <b>${reader.reader_name}</b>!</i>`, { parse_mode: 'HTML' });
+        }
       } else {
         bot.sendMessage(chatId, `❌ Cập nhật thất bại. Vui lòng thử lại.`);
       }
@@ -244,7 +251,8 @@ export function setupTelegramBotCommands(): void {
         text += `   <i>(Chưa có reader nào)</i>\n`;
       } else {
         for (const r of pageReaders) {
-          const tagDisplay = r.tag_prefix ? `Ký hiệu: <code>${r.tag_prefix}</code>` : 'Mặc định không dấu';
+          const hasTag = r.tag_prefix && r.tag_prefix.trim() !== '' && r.tag_prefix.toLowerCase() !== 'none' && r.tag_prefix.toLowerCase() !== 'khong';
+          const tagDisplay = hasTag ? `Ký hiệu: <code>${r.tag_prefix}</code>` : 'Mặc định (Không cần ký tự)';
           text += `   • <b>${r.reader_name}</b> (${tagDisplay})\n`;
         }
       }

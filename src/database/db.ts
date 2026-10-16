@@ -102,9 +102,12 @@ export function initDatabase(): void {
         INSERT INTO readers (page_id, reader_name, tag_prefix, commission_rate)
         VALUES 
           (1, 'Chi', '.', 40.0),
-          (1, 'NA', ',', 40.0)
+          (1, 'NA', '', 40.0)
       `).run();
-      console.log('[Database] Đã tự động nạp 2 Reader: Chi (dấu .) & NA (dấu ,) với hoa hồng 40%');
+      console.log('[Database] Đã tự động nạp 2 Reader: Chi (dấu .) & NA (không ký tự - mặc định)');
+    } else {
+      // Đảm bảo NA không có ký tự nếu đang lưu dấu phẩy cũ
+      db.prepare("UPDATE readers SET tag_prefix = '' WHERE LOWER(reader_name) = 'na' AND tag_prefix = ','").run();
     }
   } catch (seedErr: any) {
     console.error('[Database] Lỗi khi seed dữ liệu ban đầu:', seedErr.message);
