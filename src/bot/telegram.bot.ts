@@ -329,5 +329,38 @@ export function setupTelegramBotCommands(): void {
     bot.sendMessage(chatId, systemReport, { parse_mode: 'HTML' });
   });
 
+  // 10. Lệnh /ping hoặc /status để kiểm tra ngay lập tức bot có đang online không
+  bot.onText(/\/(?:ping|status)/, (msg) => {
+    const chatId = msg.chat.id;
+    const uptimeSec = Math.floor(process.uptime());
+    const hours = Math.floor(uptimeSec / 3600);
+    const minutes = Math.floor((uptimeSec % 3600) / 60);
+    const seconds = uptimeSec % 60;
+    const uptimeFormatted = `${hours}h ${minutes}m ${seconds}s`;
+    const nowTime = new Date().toLocaleTimeString('vi-VN');
+
+    const statusMsg = 
+`🟢 <b>HỆ THỐNG ĐANG TRỰC TUYẾN 24/7!</b>
+━━━━━━━━━━━━━━━━━━━━━
+⏰ <b>Thời gian hiện tại:</b> ${nowTime}
+⏱️ <b>Thời gian máy chủ chạy:</b> ${uptimeFormatted}
+🔋 <b>Máy chủ:</b> Render (Đang chạy ổn định)
+📡 <b>Trạng thái:</b> Sẵn sàng nhận đơn & đọc bill 100%`;
+
+    bot.sendMessage(chatId, statusMsg, { parse_mode: 'HTML' });
+  });
+
+  // 11. Phản hồi khi người dùng nhắn tin thông thường (không gõ dấu /)
+  bot.on('message', (msg) => {
+    if (msg.text && msg.text.startsWith('/')) return;
+    if (msg.chat.type === 'private') {
+      bot.sendMessage(
+        msg.chat.id,
+        '🔮 Chào bạn! Hãy gõ dấu <code>/</code> để mở menu danh sách lệnh (như <code>/baocao</code>, <code>/listreaders</code>, <code>/doi</code>, <code>/ping</code>...) nhé!',
+        { parse_mode: 'HTML' }
+      );
+    }
+  });
+
   logger.info('[TelegramBot] Đã đăng ký tất cả các lệnh tương tác Telegram siêu ngắn!');
 }

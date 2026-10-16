@@ -21,23 +21,64 @@ export class MetaApiService {
       }
 
       const url = `${config.meta.graphApiBaseUrl}/${userId}`;
-      const response = await axios.get(url, {
-        params: {
-          fields: 'name,username,first_name,last_name',
-          access_token: pageAccessToken
-        },
-        timeout: 8000
-      });
 
-      const data = response.data;
-      // Instagram trả về username (nickname) hoặc name; Facebook trả về name hoặc last_name + first_name
-      const realName = data.username || data.name || `${data.last_name || ''} ${data.first_name || ''}`.trim();
+      // 1. Thử truy vấn chuẩn Instagram (name, username)
+      try {
+        const igRes = await axios.get(url, {
+          params: {
+            fields: 'name,username',
+            access_token: pageAccessToken
+          },
+          timeout: 6000
+        });
 
-      if (realName) {
-        return {
-          name: realName,
-          isReal: true
-        };
+        const data = igRes.data;
+        const realName = data.username || data.name;
+        if (realName) {
+          return {
+            name: realName,
+            isReal: true
+          };
+        }
+      } catch (igErr: any) {
+        // Khách Facebook sẽ không có trường username, tiếp tục thử trường của Facebook
+      }
+
+      // 2. Thử truy vấn chuẩn Facebook (name, first_name, last_name)
+      try {
+        const fbRes = await axios.get(url, {
+          params: {
+            fields: 'name,first_name,last_name',
+            access_token: pageAccessToken
+          },
+          timeout: 6000
+        });
+
+        const data = fbRes.data;
+        const realName = data.name || `${data.last_name || ''} ${data.first_name || ''}`.trim();
+        if (realName) {
+          return {
+            name: realName,
+            isReal: true
+          };
+        }
+      } catch (fbErr: any) {
+        // 3. Fallback thử duy nhất trường name
+        try {
+          const basicRes = await axios.get(url, {
+            params: {
+              fields: 'name',
+              access_token: pageAccessToken
+            },
+            timeout: 5000
+          });
+          if (basicRes.data?.name) {
+            return {
+              name: basicRes.data.name,
+              isReal: true
+            };
+          }
+        } catch {}
       }
 
       return {

@@ -93,6 +93,7 @@ export class WebhookService {
 
           if (!ocrResult.amount || ocrResult.amount <= 0) {
             logger.warn(`[OCR] Không nhận diện được số tiền hợp lệ trong ảnh của khách "${customerName}"`);
+            await TelegramService.sendOcrFailedAlert(customerName);
             continue;
           }
 
@@ -109,6 +110,7 @@ export class WebhookService {
           const existingTx = TransactionModel.getByTransactionCode(transactionCode);
           if (existingTx) {
             logger.warn(`[Deduplication] Giao dịch mã ${transactionCode} đã tồn tại trong DB, bỏ qua không lưu lại.`);
+            await TelegramService.sendDuplicateAlert(customerName, transactionCode, ocrResult.amount);
             continue;
           }
 

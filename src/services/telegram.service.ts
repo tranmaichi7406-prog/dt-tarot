@@ -72,6 +72,44 @@ export class TelegramService {
   }
 
   /**
+   * Thông báo khi ảnh bill bị trùng (đã ghi nhận trước đó)
+   */
+  static async sendDuplicateAlert(customerName: string, transactionCode: string, amount: number): Promise<void> {
+    const bot = this.getBot();
+    const chatId = config.telegram.managerChatId;
+    if (!bot || !chatId) return;
+
+    const message = 
+`⚠️ <b>CẢNH BÁO TRÙNG BILL</b>
+👤 Khách: <b>${customerName}</b>
+💰 Số tiền: <b>${formatCurrencyVND(amount)}đ</b>
+🔖 Mã GD: <code>${transactionCode}</code>
+<i>(Đơn này đã được ghi nhận trước đó. Hệ thống bỏ qua để tránh cộng trùng doanh thu)</i>`;
+
+    try {
+      await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    } catch {}
+  }
+
+  /**
+   * Cảnh báo khi khách gửi ảnh nhưng OCR không đọc được số tiền
+   */
+  static async sendOcrFailedAlert(customerName: string): Promise<void> {
+    const bot = this.getBot();
+    const chatId = config.telegram.managerChatId;
+    if (!bot || !chatId) return;
+
+    const message = 
+`⚠️ <b>KHÔNG ĐỌC ĐƯỢC BILL</b>
+👤 Khách: <b>${customerName}</b>
+<i>(Ảnh mờ hoặc không nhận diện được số tiền hợp lệ. Vui lòng kiểm tra lại tin nhắn)</i>`;
+
+    try {
+      await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    } catch {}
+  }
+
+  /**
    * 2. BÁO CÁO DOANH THU TOÀN HỆ THỐNG CUỐI NGÀY (Gộp tất cả các Page & Reader)
    */
   static generateSystemDailyReportMessage(): string {
