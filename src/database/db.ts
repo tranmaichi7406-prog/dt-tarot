@@ -83,5 +83,32 @@ export function initDatabase(): void {
 
   db.exec(SCHEMA_SQL);
 
+  // Tự động nạp sẵn Fanpage và 2 Reader mặc định (Chi & NA) để hệ thống chạy ngay không cần gõ lệnh cấu hình
+  try {
+    const pageStmt = db.prepare('SELECT COUNT(*) as count FROM pages');
+    const pageCount = (pageStmt.get() as any)?.count || 0;
+    if (pageCount === 0) {
+      db.prepare(`
+        INSERT INTO pages (id, page_name, fb_page_id, access_token, telegram_group_id)
+        VALUES (1, 'tarotchips', '992148840643936', 'EAAdXu1ebxMUBSrpBUZBIF2jPQILGifbuZC2lDPucPIZBYqNJlg6fQqw2yPyhIjliZAPVpHoDLC2GWrd1xDsqmYeHLkYYAPMOzwtfx9f961n9iDrxpZAq7ARsqMmX4HCJ7dLyGaiAlxlYZAmbquoakylW16YaMolWq4e8AgeriOxwlrLSR9rxrGgyGItWZAiGSZB9ZBdZBdepJUSpwEK9epvKctukmZBi9FfE3ZCSTBcZANAmPfq8ZD', '-1004418215870')
+      `).run();
+      console.log('[Database] Đã tự động tạo Fanpage tarotchips (992148840643936)');
+    }
+
+    const readerStmt = db.prepare('SELECT COUNT(*) as count FROM readers');
+    const readerCount = (readerStmt.get() as any)?.count || 0;
+    if (readerCount === 0) {
+      db.prepare(`
+        INSERT INTO readers (page_id, reader_name, tag_prefix, commission_rate)
+        VALUES 
+          (1, 'Chi', '.', 40.0),
+          (1, 'NA', ',', 40.0)
+      `).run();
+      console.log('[Database] Đã tự động nạp 2 Reader: Chi (dấu .) & NA (dấu ,) với hoa hồng 40%');
+    }
+  } catch (seedErr: any) {
+    console.error('[Database] Lỗi khi seed dữ liệu ban đầu:', seedErr.message);
+  }
+
   console.log(`[Database] Đã kết nối và khởi tạo SQLite tại: ${config.databasePath}`);
 }

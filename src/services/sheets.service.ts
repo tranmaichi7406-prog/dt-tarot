@@ -115,8 +115,8 @@ export class GoogleSheetsService {
     if (!client) return false;
 
     try {
-      // Cột C tương ứng với Reader
-      const range = `C${rowNumber}`;
+      // Cột C tương ứng với Reader trên trang tính Data
+      const range = `Data!C${rowNumber}`;
       await client.spreadsheets.values.update({
         spreadsheetId,
         range,

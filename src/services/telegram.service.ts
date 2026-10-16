@@ -19,6 +19,10 @@ export class TelegramService {
 
     try {
       this.botInstance = new TelegramBot(config.telegram.botToken, { polling: true });
+      this.botInstance.on('polling_error', (error: any) => {
+        // Ghi log cảnh báo polling nhưng không làm sập ứng dụng
+        logger.warn(`[Telegram] Polling notice: ${error.message}`);
+      });
       logger.info('[Telegram] Đã kết nối Telegram Bot thành công!');
       return this.botInstance;
     } catch (err: any) {

@@ -27,6 +27,20 @@ export function createApp(): Application {
   // POST: Tiếp nhận sự kiện Instagram (Kiểm tra chữ ký Meta x-hub-signature-256)
   app.post('/webhook', verifyMetaSignature, WebhookController.handleWebhook);
 
+  // Telegram Webhook Endpoint (Nhận lệnh từ Telegram không bao giờ bị conflict polling)
+  app.post('/telegram-webhook', (req: Request, res: Response) => {
+    try {
+      const { TelegramService } = require('./services/telegram.service');
+      const bot = TelegramService.getBot();
+      if (bot && req.body) {
+        bot.processUpdate(req.body);
+      }
+    } catch (err: any) {
+      console.error('[TelegramWebhook] Error:', err.message);
+    }
+    res.sendStatus(200);
+  });
+
   // Xử lý lỗi tập trung
   app.use(errorHandler);
 

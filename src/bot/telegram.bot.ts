@@ -42,17 +42,31 @@ export function setupTelegramBotCommands(): void {
     bot.sendMessage(chatId, helpText, { parse_mode: 'HTML' });
   });
 
-  // 2. Lệnh /doi [Số_Đơn] [Tên_Reader_Mới] (Ví dụ: /doi 1 My)
-  bot.onText(/\/doi(?:\s+(\d+)\s+([^\s]+))?/, async (msg, match) => {
+  // 2. Lệnh /doi [Số_Đơn] [Tên_Reader_Mới] (Hỗ trợ cả /doi 1 Chi, /doi Chi, /doi@bot 1 Chi)
+  bot.onText(/\/(?:doi)(?:@\w+)?(?:\s+(\d+))?(?:\s+([^\s]+))?/i, async (msg, match) => {
     const chatId = msg.chat.id;
 
-    if (!match || !match[1] || !match[2]) {
-      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/doi [Số_Đơn] [Tên_Reader_Mới]</code>\nVí dụ: <code>/doi 1 My</code>', { parse_mode: 'HTML' });
+    let orderNumber: number | null = match && match[1] ? parseInt(match[1], 10) : null;
+    let newReaderName: string | null = match && match[2] ? match[2].trim() : null;
+
+    // Nếu người dùng chỉ gõ /doi Chi (không gõ số đơn), tự động lấy đơn mới nhất hôm nay
+    if (!orderNumber && match && match[1] && isNaN(parseInt(match[1], 10))) {
+      newReaderName = match[1].trim();
+      const allTxToday = TransactionModel.getTodayTransactions();
+      if (allTxToday.length > 0) {
+        orderNumber = allTxToday[allTxToday.length - 1].daily_order_number;
+      }
+    }
+
+    if (!newReaderName) {
+      bot.sendMessage(chatId, '⚠️ Cú pháp đổi Reader:\n• <code>/doi [Số_Đơn] [Tên_Reader_Mới]</code>\n<i>Ví dụ: <code>/doi 1 Chi</code> hoặc <code>/doi 1 NA</code></i>', { parse_mode: 'HTML' });
       return;
     }
 
-    const orderNumber = parseInt(match[1], 10);
-    const newReaderName = match[2].trim();
+    // Nếu vẫn chưa có số đơn, mặc định là đơn #1
+    if (!orderNumber) {
+      orderNumber = 1;
+    }
 
     try {
       // 1. Tìm đơn hàng hôm nay theo số thứ tự đơn
@@ -62,11 +76,17 @@ export function setupTelegramBotCommands(): void {
         return;
       }
 
-      // 2. Tìm thông tin Reader mới
-      const newReader = ReaderModel.getByName(newReaderName);
+      // 2. Tìm thông tin Reader mới (hoặc tự tạo nếu chưa có)
+      let newReader = ReaderModel.getByName(newReaderName);
       if (!newReader) {
-        bot.sendMessage(chatId, `❌ Không tìm thấy Reader có tên "<b>${newReaderName}</b>". Dùng lệnh <code>/listreaders</code> để kiểm tra.`, { parse_mode: 'HTML' });
-        return;
+        // Tự tạo nhanh nếu là Chi hoặc NA
+        const defaultTag = newReaderName.toLowerCase() === 'chi' ? '.' : (newReaderName.toLowerCase() === 'na' ? ',' : `[${newReaderName}]`);
+        newReader = ReaderModel.create({
+          page_id: tx.page_id,
+          reader_name: newReaderName,
+          tag_prefix: defaultTag,
+          commission_rate: 40.0
+        });
       }
 
       // 3. Tính lại hoa hồng theo % của Reader mới
@@ -76,14 +96,14 @@ export function setupTelegramBotCommands(): void {
       // 4. Cập nhật vào Database
       TransactionModel.updateReaderForOrder(orderNumber, newReader.id, newRate, newCommission);
 
-      // 5. Cập nhật lại Cột C trên Google Sheets nếu có lưu sheet_row_number
+      // 5. Cập nhật lại Cột C trên Google Sheets
       let sheetStatusText = '';
       if (tx.sheet_row_number) {
         const sheetUpdated = await GoogleSheetsService.updateReaderColumn(tx.sheet_row_number, newReader.reader_name);
         if (sheetUpdated) {
           sheetStatusText = `\n• Google Sheets: Đã cập nhật dòng <b>${tx.sheet_row_number}</b> Cột C thành "<b>${newReader.reader_name}</b>"`;
         } else {
-          sheetStatusText = '\n• Google Sheets: Cập nhật Cột C thất bại (Vui lòng kiểm tra lại quyền file Sheets)';
+          sheetStatusText = '\n• Google Sheets: Cập nhật Cột C thất bại (Vui lòng kiểm tra quyền file Sheets)';
         }
       }
 
@@ -100,22 +120,36 @@ export function setupTelegramBotCommands(): void {
     }
   });
 
-  // 3. Lệnh /themreader [Tên] [Chữ_Ký] [%_Hoa_Hồng] (Ví dụ: /themreader My [My] 40)
-  bot.onText(/\/themreader(?:\s+([^\s]+)\s+([^\s]+)(?:\s+(\d+(?:\.\d+)?))?)?/, (msg, match) => {
+  // 3. Lệnh /them hoặc /themreader (Hỗ trợ: /them Chi, /them_Chi, /themreader Chi . 40)
+  bot.onText(/\/(?:themreader|them)(?:_([^\s@]+)|@\w+)?(?:\s+([^\s]+))?(?:\s+([^\s]+))?(?:\s+(\d+(?:\.\d+)?))?/i, (msg, match) => {
     const chatId = msg.chat.id;
 
-    if (!match || !match[1] || !match[2]) {
-      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/themreader [Tên] [Chữ_Ký] [%_Hoa_Hồng]</code>\nVí dụ: <code>/themreader My [My] 40</code>', { parse_mode: 'HTML' });
+    const rawName = match ? (match[1] || match[2]) : '';
+    const readerName = rawName ? rawName.trim() : '';
+
+    if (!readerName) {
+      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/them [Tên_Reader]</code> hoặc <code>/themreader [Tên] [Chữ_Ký] [%_Hoa_Hồng]</code>\n<i>Ví dụ: <code>/them Chi</code> hoặc <code>/them NA</code></i>', { parse_mode: 'HTML' });
       return;
     }
 
-    const readerName = match[1].trim();
-    const tagPrefix = match[2].trim();
-    const commissionRate = match[3] ? parseFloat(match[3]) : 40.0;
+    // Tự động gán chữ ký mặc định nếu không điền
+    let tagPrefix = match && match[3] ? match[3].trim() : '';
+    if (!tagPrefix) {
+      tagPrefix = readerName.toLowerCase() === 'chi' ? '.' : (readerName.toLowerCase() === 'na' ? ',' : `[${readerName}]`);
+    }
+
+    const commissionRate = match && match[4] ? parseFloat(match[4]) : 40.0;
 
     try {
       const allPages = PageModel.getAll();
       const defaultPageId = allPages.length > 0 ? allPages[0].id : 1;
+
+      // Kiểm tra xem reader đã có chưa
+      let reader = ReaderModel.getByName(readerName);
+      if (reader) {
+        bot.sendMessage(chatId, `ℹ️ Reader <b>${reader.reader_name}</b> đã có sẵn trên hệ thống (Chữ ký: <code>${reader.tag_prefix}</code>, Hoa hồng: <b>${reader.commission_rate}%</b>).`, { parse_mode: 'HTML' });
+        return;
+      }
 
       const newReader = ReaderModel.create({
         page_id: defaultPageId,
