@@ -87,12 +87,19 @@ export function initDatabase(): void {
   try {
     const pageStmt = db.prepare('SELECT COUNT(*) as count FROM pages');
     const pageCount = (pageStmt.get() as any)?.count || 0;
+    const currentToken = 'EAAdXu1ebxMUBSqAUrstLtx05tKORaVumRy1ltJJ17401Gv5GJPuvcYtpEKZCoUIOfqYT7PhGxcVmBZCp9ZADdtYHIpEDopZCcuFZAF27A1eFRtB40ZCi9ZCDobpIrE679IcNCi5sHGhhRSuwBWy315UBWaK7O1zCpai6DQHSV02bNmaNllK3msnlD2EANM6pSU4mKuMctWd8fH8RM3cabcq9aZAD77YoymdDmslRqHkZD';
     if (pageCount === 0) {
       db.prepare(`
         INSERT INTO pages (id, page_name, fb_page_id, access_token, telegram_group_id)
-        VALUES (1, 'tarotchips', '992148840643936', 'EAAdXu1ebxMUBSrpBUZBIF2jPQILGifbuZC2lDPucPIZBYqNJlg6fQqw2yPyhIjliZAPVpHoDLC2GWrd1xDsqmYeHLkYYAPMOzwtfx9f961n9iDrxpZAq7ARsqMmX4HCJ7dLyGaiAlxlYZAmbquoakylW16YaMolWq4e8AgeriOxwlrLSR9rxrGgyGItWZAiGSZB9ZBdZBdepJUSpwEK9epvKctukmZBi9FfE3ZCSTBcZANAmPfq8ZD', '-1004418215870')
-      `).run();
+        VALUES (1, 'tarotchips', '992148840643936', ?, '-1004418215870')
+      `).run(currentToken);
       console.log('[Database] Đã tự động tạo Fanpage tarotchips (992148840643936)');
+    } else {
+      // Tự động cập nhật Page Access Token mới nhất cho tarotchips
+      db.prepare(`
+        UPDATE pages SET access_token = ? WHERE fb_page_id = '992148840643936' OR id = 1
+      `).run(currentToken);
+      console.log('[Database] Đã cập nhật Page Access Token mới cho tarotchips');
     }
 
     const readerStmt = db.prepare('SELECT COUNT(*) as count FROM readers');
