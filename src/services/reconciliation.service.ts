@@ -31,27 +31,44 @@ export interface RecoveredBill {
   platform: string;
 }
 
+export interface MetaScanError {
+  platform: string;
+  pageName: string;
+  code: number | string;
+  subcode?: number | string;
+  message: string;
+}
+
 export class ReconciliationService {
   /**
    * RÀ SOÁT ĐỐI CHIẾU DOANH THU CHUẨN:
    * 1. LẤY META LÀM GỐC: Quét trực tiếp toàn bộ hội thoại/tin nhắn trên Meta (Facebook + Instagram) trong ngày để tìm bill thực tế.
-   * 2. ĐỐI CHIẾU SANG GOOGLE SHEETS (ĐÍCH): Kiểm tra xem bill nào trên Meta chưa có trong Google Sheet.
-   * 3. BÙ BILL BỊ THIẾU: Tự động ghi bù vào Google Sheet và báo cáo Telegram.
+   * 2. BẮT BUỘC BÁO LỖI NẾU KẾT NỐI META THẤT BẠI: Nếu token hết hạn hoặc lỗi Graph API, báo rõ ràng lên Telegram, tuyệt đối không nuốt lỗi.
+   * 3. ĐỐI CHIẾU 1:1 SANG GOOGLE SHEETS (ĐÍCH): Kiểm tra xem bill nào trên Meta chưa có trong Google Sheet.
+   * 4. BÙ BILL BỊ THIẾU: Tự động ghi bù vào Google Sheet và báo cáo Telegram.
    */
-  static async runReconciliation(manualTrigger = false): Promise<string> {
-    logger.info(`[Reconciliation] Bắt đầu rà soát bill trong ngày (Trigger: ${manualTrigger ? 'Thủ công /rasoat' : 'Tự động Cron'})...`);
+  static async runReconciliation(manualTrigger = false, customDateStr?: string): Promise<string> {
+    const todayVN = customDateStr || formatDateVN(new Date());
+    logger.info(`[Reconciliation] Bắt đầu rà soát bill ngày ${todayVN} (Trigger: ${manualTrigger ? 'Thủ công /rasoat' : 'Tự động Cron'})...`);
 
     const pages = PageModel.getAll();
     if (pages.length === 0) {
       return '⚠️ Hệ thống chưa cấu hình Fanpage nào để rà soát.';
     }
-
-    const todayVN = formatDateVN(new Date());
     const rawMetaBills: MetaBillItem[] = [];
+    const metaErrors: MetaScanError[] = [];
 
     // BƯỚC 1: LẤY META LÀM GỐC - QUÉT TOÀN BỘ BILL THỰC TẾ TRÊN META TRONG NGÀY
     for (const page of pages) {
-      if (!page.access_token || page.access_token.startsWith('mock_')) continue;
+      if (!page.access_token || page.access_token.startsWith('mock_')) {
+        metaErrors.push({
+          platform: 'Hệ thống',
+          pageName: page.page_name,
+          code: 'NO_TOKEN',
+          message: 'Fanpage chưa được cấu hình Access Token hợp lệ.'
+        });
+        continue;
+      }
 
       const isTarotChips = page.page_name.toLowerCase().includes('tarot');
       const displayPageName = isTarotChips ? 'tarotchips03' : page.page_name;
@@ -85,7 +102,25 @@ export class ReconciliationService {
           conversations = convRes.data.data || [];
           logger.info(`[Reconciliation] Quét được ${conversations.length} hội thoại từ ${targetPlatform.name} (${page.page_name})`);
         } catch (fetchErr: any) {
-          logger.warn(`[Reconciliation] Lỗi quét hội thoại ${targetPlatform.name}: ${fetchErr.response?.data?.error?.message || fetchErr.message}`);
+          const errData = fetchErr.response?.data?.error;
+          const errCode = errData?.code || fetchErr.response?.status || 'UNKNOWN';
+          const errSubcode = errData?.error_subcode;
+          const errMsg = errData?.message || fetchErr.message;
+
+          logger.error(`[Reconciliation] Lỗi API Meta (${targetPlatform.name}): Code ${errCode} (Subcode ${errSubcode}) - ${errMsg}`);
+
+          // Ghi nhận lỗi nếu endpoint chính của Facebook bị lỗi (Session expired / Permissions)
+          // hoặc nếu lỗi 190 (Token chết)
+          const isTokenDead = errCode === 190 || errMsg.toLowerCase().includes('expired') || errMsg.toLowerCase().includes('session');
+          if (isTokenDead || targetPlatform.name === 'Facebook') {
+            metaErrors.push({
+              platform: targetPlatform.name,
+              pageName: page.page_name,
+              code: errCode,
+              subcode: errSubcode,
+              message: errMsg
+            });
+          }
           continue;
         }
 
@@ -152,6 +187,30 @@ export class ReconciliationService {
       }
     }
 
+    // BƯỚC 1.1: NẾU BỊ LỖI KẾT NỐI META (TOKEN HẾT HẠN HOẶC THIẾU QUYỀN) -> BÁO RÕ RÀNG LỖI!
+    const tokenExpiredError = metaErrors.find(e => e.code === 190 || e.message.toLowerCase().includes('expired'));
+    if (tokenExpiredError) {
+      const errorMsg = 
+`🚨 <b>LỖI KẾT NỐI META GRAPH API (TOKEN HẾT HẠN)</b>
+━━━━━━━━━━━━━━━━━━━━━
+❌ <b>Không thể quét tin nhắn trên Meta để đối soát:</b>
+• <b>Trang:</b> ${tokenExpiredError.pageName}
+• <b>Mã lỗi Facebook:</b> Code <code>${tokenExpiredError.code}</code> (Subcode: <code>${tokenExpiredError.subcode || 'N/A'}</code>)
+• <b>Thông báo từ Meta:</b> <code>${tokenExpiredError.message}</code>
+━━━━━━━━━━━━━━━━━━━━━
+⚠️ <b>Nguyên nhân:</b> Page Access Token hiện tại đã hết hạn sử dụng. Meta đã khóa kết nối và không cho phép đọc hộp thư tin nhắn.
+👉 <b>Cách khắc phục ngay:</b>
+Vui lòng tạo 1 Token mới trên Graph API Explorer (hoặc lấy Token vĩnh viễn System User) rồi gửi vào nhóm bằng lệnh:
+<code>/settoken [Dán_Mã_Token_Mới_Vào_Đây]</code>`;
+
+      const bot = TelegramService.getBot();
+      const chatId = config.telegram.managerChatId;
+      if (bot && chatId) {
+        try { await bot.sendMessage(chatId, errorMsg, { parse_mode: 'HTML' }); } catch {}
+      }
+      return errorMsg;
+    }
+
     // LỌC TRÙNG BILL TRÊN META:
     // Nếu cùng 1 khách gửi cùng 1 bill nhiều lần (cùng mã giao dịch hoặc cùng số tiền & tên), chỉ giữ 1 bill gốc duy nhất
     const uniqueMetaBills: MetaBillItem[] = [];
@@ -174,7 +233,7 @@ export class ReconciliationService {
     const sheetRowsToday = await GoogleSheetsService.getRowsByDate(todayVN);
     logger.info(`[Reconciliation] Google Sheet hiện đang có ${sheetRowsToday.length} dòng ngày ${todayVN}`);
 
-    // Tạo danh sách các dòng trên Sheets có thể dùng để khớp (mỗi dòng trên Sheets chỉ được khớp với 1 bill trên Meta)
+    // Tạo danh sách các dòng trên Sheets có thể dùng để khớp (mỗi dòng trên Sheets chỉ được khớp 1 lần)
     const unmatchedSheetRows = [...sheetRowsToday];
     const recoveredBills: RecoveredBill[] = [];
 
@@ -246,19 +305,11 @@ export class ReconciliationService {
       }
     }
 
-    // BƯỚC 4: BÁO CÁO KẾT QUẢ VỀ TELEGRAM
+    // BƯỚC 4: BÁO CÁO KẾT QUẢ ĐỐI SOÁT VỀ TELEGRAM (TRUNG THỰC, KHÔNG GIAN DỐI)
     const finalSheetRows = await GoogleSheetsService.getRowsByDate(todayVN);
     let reportMessage = '';
 
-    if (recoveredBills.length === 0) {
-      reportMessage = 
-`✅ <b>KẾT QUẢ ĐỐI SOÁT BILL NGÀY ${todayVN}</b>
-━━━━━━━━━━━━━━━━━━━━━
-📊 <b>Tổng bill thực tế trên Meta (Gốc):</b> ${uniqueMetaBills.length} đơn
-📊 <b>Tổng đơn trên Google Sheet (Đích):</b> ${finalSheetRows.length} đơn
-🎯 <b>Trạng thái:</b> <b>ĐÃ KHỚP 100% VỚI META</b>
-<i>(Toàn bộ giao dịch trên Meta đều đã có đầy đủ trên Google Sheets!)</i>`;
-    } else {
+    if (recoveredBills.length > 0) {
       let recoveredListText = '';
       for (const b of recoveredBills) {
         const rowStr = b.sheetRowNumber ? ` ➔ <i>Ghi bù vào Dòng ${b.sheetRowNumber}</i>` : '';
@@ -274,6 +325,35 @@ ${recoveredListText}
 📊 <b>Tổng đơn thực tế trên Meta:</b> ${uniqueMetaBills.length} đơn
 📊 <b>Tổng đơn trên Google Sheet sau khi bù:</b> ${finalSheetRows.length} đơn
 ✅ Hệ thống đã bảo toàn 100% doanh thu theo đúng dữ liệu gốc trên Meta!`;
+    } else if (uniqueMetaBills.length > 0 && uniqueMetaBills.length === finalSheetRows.length) {
+      reportMessage = 
+`✅ <b>KẾT QUẢ ĐỐI SOÁT BILL NGÀY ${todayVN}</b>
+━━━━━━━━━━━━━━━━━━━━━
+📊 <b>Tổng bill thực tế trên Meta (Gốc):</b> ${uniqueMetaBills.length} đơn
+📊 <b>Tổng đơn trên Google Sheet (Đích):</b> ${finalSheetRows.length} đơn
+🎯 <b>Trạng thái:</b> <b>ĐÃ KHỚP 100% VỚI META</b>
+<i>(Toàn bộ ${uniqueMetaBills.length} giao dịch trên Meta đều đã có đầy đủ trên Google Sheets!)</i>`;
+    } else if (uniqueMetaBills.length === 0 && finalSheetRows.length > 0) {
+      reportMessage = 
+`⚠️ <b>KẾT QUẢ ĐỐI SOÁT BILL NGÀY ${todayVN}</b>
+━━━━━━━━━━━━━━━━━━━━━
+📊 <b>Tổng bill quét trên Meta hôm nay:</b> 0 đơn
+📊 <b>Tổng đơn hiện có trên Google Sheet:</b> ${finalSheetRows.length} đơn
+━━━━━━━━━━━━━━━━━━━━━
+📌 <b>Lưu ý:</b> Trong ngày hôm nay (${todayVN}) chưa ghi nhận ảnh bill hợp lệ mới nào được gửi từ khách trên Meta. Dữ liệu trên Google Sheet hiện tại do quản lý/reader tự điền hoặc đã ghi nhận từ trước.`;
+    } else if (uniqueMetaBills.length === 0 && finalSheetRows.length === 0) {
+      reportMessage = 
+`ℹ️ <b>KẾT QUẢ ĐỐI SOÁT BILL NGÀY ${todayVN}</b>
+━━━━━━━━━━━━━━━━━━━━━
+📊 <b>Meta:</b> 0 đơn | <b>Google Sheet:</b> 0 đơn
+<i>(Hôm nay chưa phát sinh giao dịch nào trên hệ thống.)</i>`;
+    } else {
+      reportMessage = 
+`📊 <b>KẾT QUẢ ĐỐI SOÁT BILL NGÀY ${todayVN}</b>
+━━━━━━━━━━━━━━━━━━━━━
+📊 <b>Tổng bill thực tế trên Meta:</b> ${uniqueMetaBills.length} đơn
+📊 <b>Tổng đơn trên Google Sheet:</b> ${finalSheetRows.length} đơn
+<i>(Không có bill nào trên Meta bị bỏ sót trong ngày hôm nay.)</i>`;
     }
 
     const bot = TelegramService.getBot();

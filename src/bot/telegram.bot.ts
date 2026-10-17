@@ -1,4 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
+import axios from 'axios';
 import { TelegramService } from '../services/telegram.service';
 import { PageModel } from '../models/page.model';
 import { ReaderModel } from '../models/reader.model';
@@ -357,15 +358,16 @@ export function setupTelegramBotCommands(): void {
   });
 
   // 11. Lệnh /rasoat: Rà soát toàn bộ tin nhắn bill trên Meta trong ngày & tự động bù vào Google Sheet
-  bot.onText(/\/rasoat/, async (msg) => {
+  bot.onText(/\/rasoat(?:\s+(\S+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
+    const dateParam = match ? match[1]?.trim() : undefined;
     let waitMsg: any = null;
     try {
-      waitMsg = await bot.sendMessage(chatId, '⏳ <b>Đang quét tin nhắn Meta và đối chiếu số liệu với Google Sheet...</b>\n<i>Vui lòng đợi 5-10 giây...</i>', { parse_mode: 'HTML' });
+      waitMsg = await bot.sendMessage(chatId, `⏳ <b>Đang quét tin nhắn Meta và đối chiếu số liệu ${dateParam || 'hôm nay'} với Google Sheet...</b>\n<i>Vui lòng đợi 5-10 giây...</i>`, { parse_mode: 'HTML' });
     } catch {}
 
     try {
-      await ReconciliationService.runReconciliation(true);
+      await ReconciliationService.runReconciliation(true, dateParam);
       if (waitMsg && waitMsg.message_id) {
         bot.deleteMessage(chatId, waitMsg.message_id).catch(() => {});
       }
@@ -374,7 +376,69 @@ export function setupTelegramBotCommands(): void {
     }
   });
 
-  // 12. Phản hồi khi người dùng nhắn tin thông thường (không gõ dấu /)
+  // 12. Lệnh /settoken [Token_Mới]: Cập nhật Token ngay trong Telegram mà không cần đụng vào code
+  bot.onText(/\/settoken(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const newToken = match ? match[1]?.trim() : '';
+
+    if (!newToken) {
+      bot.sendMessage(chatId, '⚠️ Cú pháp: <code>/settoken [Mã_Page_Access_Token_Mới]</code>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    try {
+      // 1. Kiểm tra tính hợp lệ của Token với Meta API
+      const debugRes = await axios.get(`https://graph.facebook.com/debug_token?input_token=${newToken}&access_token=${newToken}`);
+      const tokenData = debugRes.data?.data;
+      const scopes = tokenData?.scopes || [];
+      const expiresAt = tokenData?.expires_at ? (tokenData.expires_at === 0 ? 'Vĩnh viễn (Never)' : new Date(tokenData.expires_at * 1000).toLocaleString('vi-VN')) : 'Không xác định';
+
+      // 2. Cập nhật vào Database SQLite
+      const page = PageModel.getByFbPageId('992148840643936') || PageModel.getAll()[0];
+      if (page) {
+        PageModel.updateToken(page.id, newToken);
+      }
+
+      // 3. Tự động đăng ký Webhook cho Page và Instagram với Token mới
+      let pageSubStatus = 'Thất bại';
+      let igSubStatus = 'Thất bại';
+      try {
+        await axios.post(`https://graph.facebook.com/v19.0/992148840643936/subscribed_apps`, null, {
+          params: { subscribed_fields: 'messages,messaging_postbacks', access_token: newToken }
+        });
+        pageSubStatus = 'Thành công';
+      } catch (subErr: any) {
+        pageSubStatus = subErr.response?.data?.error?.message || subErr.message;
+      }
+
+      try {
+        await axios.post(`https://graph.facebook.com/v19.0/17841436212431682/subscribed_apps`, null, {
+          params: { subscribed_fields: 'messages', access_token: newToken }
+        });
+        igSubStatus = 'Thành công';
+      } catch (subErr: any) {
+        igSubStatus = subErr.response?.data?.error?.message || subErr.message;
+      }
+
+      const reply = 
+`✅ <b>ĐÃ CẬP NHẬT PAGE ACCESS TOKEN THÀNH CÔNG!</b>
+━━━━━━━━━━━━━━━━━━━━━
+🔑 <b>Loại Token:</b> ${tokenData?.type || 'PAGE'}
+⏰ <b>Hạn dùng:</b> ${expiresAt}
+📋 <b>Quyền được cấp:</b> <code>${scopes.join(', ')}</code>
+━━━━━━━━━━━━━━━━━━━━━
+📡 <b>Đăng ký Webhook Page (FB):</b> ${pageSubStatus}
+📡 <b>Đăng ký Webhook Instagram:</b> ${igSubStatus}
+👉 <i>Hệ thống đã sẵn sàng đón bill và đối soát tự động!</i>`;
+
+      bot.sendMessage(chatId, reply, { parse_mode: 'HTML' });
+    } catch (err: any) {
+      const fbErr = err.response?.data?.error;
+      bot.sendMessage(chatId, `❌ <b>Token không hợp lệ hoặc bị Meta từ chối!</b>\n• Mã lỗi: ${fbErr?.code || 'N/A'}\n• Chi tiết: <code>${fbErr?.message || err.message}</code>`, { parse_mode: 'HTML' });
+    }
+  });
+
+  // 13. Phản hồi khi người dùng nhắn tin thông thường (không gõ dấu /)
   bot.on('message', (msg) => {
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.chat.type === 'private') {
