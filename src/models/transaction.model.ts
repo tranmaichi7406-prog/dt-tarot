@@ -39,7 +39,7 @@ export class TransactionModel {
     sheet_row_number?: number | null;
   }): Transaction {
     const stmt = db.prepare(`
-      INSERT INTO transactions (
+      INSERT OR REPLACE INTO transactions (
         daily_order_number, page_id, reader_id, customer_name, package_name, 
         amount, commission_rate, commission_amount, transaction_code, 
         bill_image_url, sheet_row_number, created_at

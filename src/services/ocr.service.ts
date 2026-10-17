@@ -48,7 +48,7 @@ export class OCRService {
     try {
       const response = await axios.get(imageUrl, {
         responseType: 'arraybuffer',
-        timeout: 15000,
+        timeout: 30000,
         headers: {
           'User-Agent': 'Mozilla/5.0 DT-Tarot-Backend/1.0'
         }
