@@ -12,9 +12,15 @@ export class PageModel {
     const exact = stmt.get(fbPageId) as unknown as Page | undefined;
     if (exact) return exact;
 
-    // Fallback đa nền tảng: Nếu chỉ có 1 Page trong hệ thống, nhận luôn cho cả Instagram Direct & Facebook
+    // Nhận diện theo Instagram Business Account ID của Tarot Chips
+    if (fbPageId === '17841436212431682') {
+      const tarot = stmt.get('992148840643936') as unknown as Page | undefined;
+      if (tarot) return tarot;
+    }
+
+    // Fallback đa nền tảng: Luôn chọn Page chính nếu có trong hệ thống
     const all = this.getAll();
-    if (all.length === 1) {
+    if (all.length > 0) {
       return all[0];
     }
 

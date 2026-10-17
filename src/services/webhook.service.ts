@@ -180,7 +180,8 @@ export class WebhookService {
             readerName: readerName,
             amount: ocrResult.amount,
             commissionAmount: commissionAmount,
-            commissionRate: commissionRate
+            commissionRate: commissionRate,
+            platform: platform
           });
 
         } catch (ocrErr: any) {

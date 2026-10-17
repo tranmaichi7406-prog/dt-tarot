@@ -47,6 +47,7 @@ export class TelegramService {
     amount: number;
     commissionAmount?: number;
     commissionRate?: number;
+    platform?: string;
   }): Promise<boolean> {
     const bot = this.getBot();
     const chatId = config.telegram.managerChatId;
@@ -56,11 +57,12 @@ export class TelegramService {
     }
 
     const amountFormatted = formatCurrencyVND(data.amount);
+    const platformStr = data.platform ? `\n📱 Nguồn: <b>${data.platform}</b>` : '';
     const message = 
 `🔔 <b>ĐƠN #${data.dailyOrderNumber} - [PAGE: ${data.pageName}]</b>
 👤 Khách: <b>${data.customerName}</b>
 🔮 Reader: <b>${data.readerName}</b>
-💰 Bill: <b>${amountFormatted}đ</b>`;
+💰 Bill: <b>${amountFormatted}đ</b>${platformStr}`;
 
     try {
       await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
